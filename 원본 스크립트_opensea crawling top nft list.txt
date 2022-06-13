@@ -1,0 +1,238 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup as bs
+import pandas as pd
+import datetime
+import time
+import tweepy
+import re
+
+
+def twitter(screen_name):
+    consumer_key = "nSuvuIVOaAl5ayRCi7uJy9DDC"
+    consumer_secret = "BSnCjczHa2c4hRaT6JHQmvw3XqarZRVbHK0x7bVDtRCGBoYIxr"
+    access_token = "865273934413017089-g53HyHLYu0jWyTJ7AMlyxuz8b824Zgp"
+    access_token_secret = "mvVhEUBCdXwzUqxxMHHSABwhvgqLO8irv7XgwvVRwFr7E"
+
+    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+    auth.set_access_token(access_token, access_token_secret)
+    twitter_api = tweepy.API(auth)
+
+    user = twitter_api.get_user(screen_name=screen_name)
+    followers_count = user.followers_count
+
+    return followers_count
+
+
+def try_parsing_date(date_time):
+    for fmt in ('%B %d %Y, %I:%M %p', '%b %d %Y, %I:%M %p'):
+        try:
+            return datetime.datetime.strptime(date_time, fmt).strftime('%Y-%m-%d %I:%M %p')
+        except:
+            pass
+    return date_time
+
+
+def add(driver, *, filters):
+    filter_div = driver.find_element(by=By.XPATH, value='//div[@class="Dropdown--header"][contains(., "expand_more")]')
+    filter_div.click()
+    if filters == 'Sales':
+        driver.find_element(by=By.XPATH,
+                            value='//div[@class="EventHistory--filter-option"][contains(., "Sales")]').click()
+    elif filters == 'Transfers':
+        driver.find_element(by=By.XPATH,
+                            value='//div[@class="EventHistory--filter-option"][contains(., "Transfers")]').click()
+    elif filters == 'Listings':
+        driver.find_element(by=By.XPATH,
+                            value='//div[@class="EventHistory--filter-option"][contains(., "Listings")]').click()
+    driver.find_element(by=By.XPATH, value='//div[@class="Dropdown--header"][contains(., "expand_less")]').click()
+
+
+def scroll_offers(driver):
+    a = ActionChains(driver)
+    ul = driver.find_element(by=By.XPATH,
+                             value='//div[contains(@class,"item--orders")][contains(.,"Offers")]/div/div/div/div/div/div/ul')
+    a.move_to_element(ul).click().perform()
+    while True:
+        driver.execute_script("window.scrollTo(0,0)", "")
+        last = driver.find_elements(by=By.XPATH,
+                                    value='//div[contains(@class,"item--orders")][contains(.,"Offers")]/div/div/div/div/div/div/ul/li')[
+            -1]
+        a.send_keys_to_element(ul, Keys.PAGE_DOWN * 3).perform()
+        time.sleep(3)
+        new_last = driver.find_elements(by=By.XPATH,
+                                        value='//div[contains(@class,"item--orders")][contains(.,"Offers")]/div/div/div/div/div/div/ul/li')[
+            -1]
+        if new_last == last:
+            break
+
+
+driver_1 = webdriver.Chrome(ChromeDriverManager().install())
+driver_1.maximize_window()
+
+driver_2 = webdriver.Chrome(ChromeDriverManager().install())
+driver_2.maximize_window()
+
+collections = pd.read_excel('collections.xlsx')
+
+required = ['CryptoPunks']
+
+temp_collections = pd.DataFrame()
+for i in required:
+    temp_collections = pd.concat([temp_collections, collections[collections['Collection_Name'] == i]],
+                                 ignore_index=True)
+del collections
+
+collections_info = pd.DataFrame(columns=['Asset Name', 'Owner', 'Number of Likes', 'Number of Offers', 'Last Owner',
+                                         'Sale Price (in cryptocurrency)', 'Cryptocurrency', 'Last Sale Time',
+                                         'Name', 'Author', 'Number of Owners', 'Volume Traded',
+                                         'Number of Twitter Followers'])
+n = 0
+for i in range(len(temp_collections)):
+    url = temp_collections.loc[i, 'Link']
+    driver_1.get(url)
+
+    collection_name = temp_collections.loc[i, 'Collection_Name']
+    try:
+        numowners = driver_1.find_elements(by=By.XPATH,
+                                           value='//span[@class="Blockreact__Block-sc-1xf18x6-0 Textreact__Text-sc-1w94ul3-0 cLsBvb kscHgv"]')[
+            1].text
+        driver_1.implicitly_wait(10)
+    except:
+        numowners = 'NA'
+    try:
+        auther = driver_1.find_element(by=By.XPATH, value='//div[@data-testid="AccountLink"]/a').text
+    except:
+        auther = 'NA'
+    try:
+        traded = driver_1.find_elements(by=By.XPATH,
+                                        value='//span[@class="Blockreact__Block-sc-1xf18x6-0 Textreact__Text-sc-1w94ul3-0 cLsBvb kscHgv"]')[
+            3].text
+        driver_1.implicitly_wait(10)
+    except:
+        traded = 'NA'
+    try:
+        twitter_username = driver_1.find_element(by=By.XPATH,
+                                                 value='//a[contains(@href,"https://twitter.com")]').get_attribute(
+            'href')[20:]
+        followers = twitter(twitter_username)
+    except:
+        followers = 'NA'
+
+    #driver_1.execute_script("window.scrollTo(0,800)", "")
+    driver_1.implicitly_wait(10)
+
+    for t in range(0, 22839681, 515):
+        for l in [0, 379, 758]:
+            collections_info.loc[n, 'Name'] = collection_name
+            collections_info.loc[n, 'Author'] = auther
+            collections_info.loc[n, 'Number of Owners'] = numowners
+            collections_info.loc[n, 'Volume Traded'] = traded
+            collections_info.loc[n, 'Number of Twitter Followers'] = followers
+
+            xpath = f'//div[@role="gridcell"][(contains(@style, "top: {t}px;")) and (contains(@style, "left: {l}px;"))]'
+            asset = driver_1.find_element(by=By.XPATH, value=xpath).find_element(by=By.TAG_NAME,
+                                                                                 value='a').get_attribute('href')
+
+            driver_2.get(asset)
+
+            src = driver_2.page_source
+            soup = bs(src, 'lxml')
+
+            try:
+                collections_info.loc[n, 'Author'] = soup.find(string=re.compile('Created by')).findParent().find(
+                    'a').text
+            except:
+                collections_info.loc[n, 'Author'] = 'NA'
+            try:
+                Asset_Name = driver_2.find_element(by=By.TAG_NAME, value='h1').text
+                collections_info.loc[n, 'Asset Name'] = Asset_Name
+            except:
+                collections_info['Asset Name'] = 'NA'
+            try:
+                collections_info.loc[n, 'Owner'] = soup.find('div', {'data-testid': 'ItemOwnerAccountLink'}).find(
+                    'a').text
+            except:
+                collections_info.loc[n, 'Owner'] = 'NA'
+            try:
+                collections_info.loc[n, 'Number of Likes'] = soup.find('button', {'aria-label': 'Favorited by'}).text[
+                                                             8:-10]
+            except:
+                collections_info.loc[n, 'Number of Likes'] = 'NA'
+            try:
+                scroll_offers(driver_2)
+                collections_info.loc[n, 'Number of Offers'] = len(driver_2.find_elements(by=By.XPATH,
+                                                                                         value='''//div[contains(@class,"item--orders")][contains(.,"Offers")]
+                                                /div/div/div/div/div/div/ul/li''')) - 1
+            except:
+                collections_info.loc[n, 'Number of Offers'] = 0
+            try:
+                filter = driver_2.find_element(by=By.XPATH, value='//span[contains(., "Item Activity")]')
+                driver_2.execute_script("arguments[0].scrollIntoView();", filter)
+                driver_2.execute_script("window.scrollBy(0,-100)", "")
+                driver_2.find_element(by=By.XPATH, value='//button[contains(., "Clear All")]').click()
+            except:
+                pass
+            try:
+                add(driver_2, filters='Sales')
+                time.sleep(2)
+            except:
+                print(f"couldn't filter: {asset}")
+                continue
+            try:
+                a = ActionChains(driver_2)
+                timestamp = driver_2.find_element(by=By.XPATH, value='//div[@data-testid="EventTimestamp"]')
+                a.move_to_element(timestamp).perform()
+                date_time = driver_2.find_element(by=By.XPATH, value='//div[@class="tippy-content"]').text
+                collections_info.loc[n, 'Last Sale Time'] = try_parsing_date(date_time)
+            except:
+                collections_info.loc[n, 'Last Sale Time'] = 'NA'
+                src = driver_2.page_source
+                soup = bs(src, 'lxml')
+            try:
+                collections_info.loc[n, 'Last Owner'] = driver_2.find_elements(by=By.XPATH,
+                                                                               value='''//div[@class="Rowreact__DivContainer-sc-amt98e-0 kjdpJY EventHistory--row"]
+                                                /div[@class="Row--cell Row--cellIsSpaced"]'''
+                                                                               )[0].text
+            except:
+                collections_info.loc[n, 'Last Owner'] = 'NA'
+            if collections_info.loc[n, 'Owner'] == 'NA':
+                try:
+                    collections_info.loc[n, 'Owner'] = driver_2.find_elements(by=By.XPATH,
+                                                                              value='''//div[@class="Rowreact__DivContainer-sc-amt98e-0 kjdpJY EventHistory--row"]
+                                                /div[@class="Row--cell Row--cellIsSpaced"]'''
+                                                                              )[1].text
+                except:
+                    pass
+            try:
+                collections_info.loc[n, 'Sale Price (in cryptocurrency)'] = driver_2.find_elements(by=By.XPATH,
+                                                                                                   value='''//div[@class="Rowreact__DivContainer-sc-amt98e-0 kjdpJY EventHistory--row"]
+                                                /div[@class="Row--cell Row--cellIsSpaced EventHistory--price-col"]'''
+                                                                                                   )[0].text
+            except:
+                collections_info.loc[n, 'Sale Price (in cryptocurrency)'] = 'NA'
+            try:
+                collections_info.loc[n, 'Cryptocurrency'] = driver_2.find_elements(by=By.XPATH,
+                                                                                   value='''//div[@class="Rowreact__DivContainer-sc-amt98e-0 kjdpJY EventHistory--row"]
+                                                /div[@class="Row--cell Row--cellIsSpaced EventHistory--price-col"]/div/div/div/a/div/img'''
+                                                                                   )[0].get_attribute('alt')
+            except:
+                collections_info.loc[n, 'Cryptocurrency'] = 'NA'
+
+            n += 1
+
+        #driver_1.execute_script("window.scrollBy(0,515)", "")
+
+        if t % 5150 == 0 and t != 0:
+            collections_info.to_excel(f'collections/{t / 515}_{collection_name}.xlsx', index=False)
+            print(f'{((t / 515) * 3) + 3} finished')
+
+    collections_info.to_excel(f'collections/{collection_name}.xlsx', index=False)
+    print(f'{collection_name} finished')
+
+driver_1.quit()
+driver_2.quit()
+print('done')
